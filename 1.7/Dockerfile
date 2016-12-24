@@ -21,20 +21,10 @@ ENV TARANTOOL_VERSION=1.7.2-287-g085f6e4 \
     LUAROCK_SHARD_TAG=278b906 \
     LUAROCK_HTTP_REPO=https://github.com/tarantool/http.git \
     LUAROCK_HTTP_TAG=4486de9 \
-    LUAROCK_PG_REPO=https://github.com/tarantool/pg.git \
-    LUAROCK_PG_TAG=43a7130 \
-    LUAROCK_MYSQL_REPO=https://github.com/tarantool/mysql.git \
-    LUAROCK_MYSQL_TAG=1c15d30 \
-    LUAROCK_MEMCACHED_REPO=https://github.com/tarantool/memcached.git \
-    LUAROCK_MEMCACHED_TAG=c927626 \
     LUAROCK_TARANTOOL_PROMETHEUS_REPO=https://github.com/tarantool/prometheus.git \
     LUAROCK_TARANTOOL_PROMETHEUS_TAG=0654304 \
     LUAROCK_TARANTOOL_CURL_REPO=https://github.com/tarantool/curl.git \
-    LUAROCK_TARANTOOL_CURL_TAG=900b3fd \
-    LUAROCK_MQTT_REPO=https://github.com/tarantool/mqtt.git \
-    LUAROCK_MQTT_TAG=238fd2e \
-    LUAROCK_TARANTOOL_GIS_REPO=https://github.com/tarantool/gis.git \
-    LUAROCK_TARANTOOL_GIS_TAG=25209fc
+    LUAROCK_TARANTOOL_CURL_TAG=900b3fd
 
 RUN set -x \
     && apk add --no-cache --virtual .run-deps \
@@ -114,11 +104,8 @@ COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
 
 RUN set -x \
     && apk add --no-cache --virtual .run-deps \
-        mariadb-client-libs \
-        libpq \
         cyrus-sasl \
         libcurl \
-        mosquitto-libs \
     && apk add --no-cache --virtual .build-deps \
         git \
         cmake \
@@ -126,33 +113,11 @@ RUN set -x \
         coreutils \
         gcc \
         g++ \
-        postgresql-dev \
         lua-dev \
         musl-dev \
         cyrus-sasl-dev \
         curl-dev \
-        mosquitto-dev \
     && mkdir -p /rocks \
-    && : "---------- proj (for gis module) ----------" \
-    && wget -O proj.tar.gz http://download.osgeo.org/proj/proj-4.9.3.tar.gz \
-    && mkdir -p /usr/src/proj \
-    && tar -xzf proj.tar.gz -C /usr/src/proj --strip-components=1 \
-    && (cd /usr/src/proj; \
-        ./configure; \
-        make; \
-        make install) \
-    && rm -r /usr/src/proj \
-    && rm -rf /usr/src/proj \
-    && : "---------- geos (for gis module) ----------" \
-    && wget -O geos.tar.bz2 http://download.osgeo.org/geos/geos-3.6.0.tar.bz2 \
-    && mkdir -p /usr/src/geos \
-    && tar -xjf geos.tar.bz2 -C /usr/src/geos --strip-components=1 \
-    && (cd /usr/src/geos; \
-        ./configure; \
-        make; \
-        make install) \
-    && rm -r /usr/src/geos \
-    && rm -rf /usr/src/geos \
     && : "---------- luarocks ----------" \
     && luarocks install lua-term \
     && : "avro" \
@@ -179,18 +144,6 @@ RUN set -x \
     && git clone $LUAROCK_HTTP_REPO /rocks/http \
     && git -C /rocks/http checkout $LUAROCK_HTTP_TAG \
     && (cd /rocks/http && luarocks make *rockspec) \
-    && : "pg" \
-    && git clone $LUAROCK_PG_REPO /rocks/pg \
-    && git -C /rocks/pg checkout $LUAROCK_PG_TAG \
-    && (cd /rocks/pg && luarocks make *rockspec) \
-    && : "mysql" \
-    && git clone $LUAROCK_MYSQL_REPO /rocks/mysql \
-    && git -C /rocks/mysql checkout $LUAROCK_MYSQL_TAG \
-    && (cd /rocks/mysql && luarocks make *rockspec) \
-    && : "memcached" \
-    && git clone $LUAROCK_MEMCACHED_REPO /rocks/memcached \
-    && git -C /rocks/memcached checkout $LUAROCK_MEMCACHED_TAG \
-    && (cd /rocks/memcached && luarocks make *rockspec) \
     && : "prometheus" \
     && git clone $LUAROCK_TARANTOOL_PROMETHEUS_REPO /rocks/prometheus \
     && git -C /rocks/prometheus checkout $LUAROCK_TARANTOOL_PROMETHEUS_TAG \
@@ -199,14 +152,6 @@ RUN set -x \
     && git clone $LUAROCK_TARANTOOL_CURL_REPO /rocks/curl \
     && git -C /rocks/curl checkout $LUAROCK_TARANTOOL_CURL_TAG \
     && (cd /rocks/curl && luarocks make *rockspec) \
-    && : "mqtt" \
-    && git clone $LUAROCK_MQTT_REPO /rocks/mqtt \
-    && git -C /rocks/mqtt checkout $LUAROCK_MQTT_TAG \
-    && (cd /rocks/mqtt && luarocks make *rockspec) \
-    && : "gis" \
-    && git clone $LUAROCK_TARANTOOL_GIS_REPO /rocks/gis \
-    && git -C /rocks/gis checkout $LUAROCK_TARANTOOL_GIS_TAG \
-    && (cd /rocks/gis && luarocks make *rockspec) \
     && : "---------- remove build deps ----------" \
     && apk del .build-deps \
     && rm -rf /rocks
