@@ -24,7 +24,7 @@ ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
     LUAROCK_TARANTOOL_PROMETHEUS_REPO=https://github.com/tarantool/prometheus.git \
     LUAROCK_TARANTOOL_PROMETHEUS_TAG=0654304 \
     LUAROCK_TARANTOOL_CURL_REPO=https://github.com/tarantool/curl.git \
-    LUAROCK_TARANTOOL_CURL_TAG=900b3fd
+    LUAROCK_TARANTOOL_CURL_TAG=2.2.3
 
 ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
 
