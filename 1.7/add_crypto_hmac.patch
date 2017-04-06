@@ -1,0 +1,440 @@
+diff --git a/extra/exports b/extra/exports
+index 6ae97fa..2721308 100644
+--- a/extra/exports
++++ b/extra/exports
+@@ -72,6 +72,8 @@ tnt_EVP_CIPHER_key_length
+ tnt_EVP_CIPHER_iv_length
+ tnt_EVP_MD_CTX_new
+ tnt_EVP_MD_CTX_free
++tnt_HMAC_CTX_new
++tnt_HMAC_CTX_free
+
+ # Module API - unstable
+
+diff --git a/src/lua/crypto.c b/src/lua/crypto.c
+index 63db9c6..8b2c7a4 100644
+--- a/src/lua/crypto.c
++++ b/src/lua/crypto.c
+@@ -46,3 +46,28 @@ void tnt_EVP_MD_CTX_free(EVP_MD_CTX *ctx)
+ 	return EVP_MD_CTX_free(ctx);
+ #endif
+ }
++
++HMAC_CTX *tnt_HMAC_CTX_new(void)
++{
++#if OPENSSL_API_COMPAT < 0x10100000L
++	HMAC_CTX *ctx = (HMAC_CTX *)OPENSSL_malloc(sizeof(HMAC_CTX));
++	if(!ctx){
++		return NULL;
++	}
++	HMAC_CTX_init(ctx);
++	return ctx;
++#else
++	return HMAC_CTX_new();
++#endif
++
++}
++
++void tnt_HMAC_CTX_free(HMAC_CTX *ctx)
++{
++#if OPENSSL_API_COMPAT < 0x10100000L
++	HMAC_cleanup(ctx); /* Remove key from memory */
++	OPENSSL_free(ctx);
++#else
++	HMAC_CTX_free(ctx);
++#endif
++}
+diff --git a/src/lua/crypto.h b/src/lua/crypto.h
+index 849e156..9808db1 100644
+--- a/src/lua/crypto.h
++++ b/src/lua/crypto.h
+@@ -32,6 +32,7 @@
+  */
+
+ #include <openssl/evp.h>
++#include <openssl/hmac.h>
+
+ #if defined(__cplusplus)
+ extern "C" {
+@@ -43,6 +44,9 @@ int tnt_openssl_init();
+ EVP_MD_CTX *tnt_EVP_MD_CTX_new(void);
+ void tnt_EVP_MD_CTX_free(EVP_MD_CTX *ctx);
+
++HMAC_CTX *tnt_HMAC_CTX_new(void);
++void tnt_HMAC_CTX_free(HMAC_CTX *ctx);
++
+ #if defined(__cplusplus)
+ }
+ #endif
+diff --git a/src/lua/crypto.lua b/src/lua/crypto.lua
+index b10a877..8191c75 100644
+--- a/src/lua/crypto.lua
++++ b/src/lua/crypto.lua
+@@ -21,6 +21,14 @@ ffi.cdef[[
+     int EVP_DigestFinal_ex(EVP_MD_CTX *ctx, unsigned char *md, unsigned int *s);
+     const EVP_MD *EVP_get_digestbyname(const char *name);
+
++    typedef struct {} HMAC_CTX;
++    HMAC_CTX *tnt_HMAC_CTX_new(void);
++    void tnt_HMAC_CTX_free(HMAC_CTX *ctx);
++    int HMAC_Init_ex(HMAC_CTX *ctx, const void *key, int len,
++                 const EVP_MD *md, ENGINE *impl);
++    int HMAC_Update(HMAC_CTX *ctx, const unsigned char *data, size_t len);
++    int HMAC_Final(HMAC_CTX *ctx, unsigned char *md, unsigned int *len);
++
+     typedef struct {} EVP_CIPHER_CTX;
+     typedef struct {} EVP_CIPHER;
+     EVP_CIPHER_CTX *EVP_CIPHER_CTX_new();
+@@ -128,6 +136,80 @@ digest_mt = {
+     }
+ }
+
++local hmacs = digests
++
++local hmac_mt = {}
++
++local function hmac_gc(ctx)
++    ffi.C.tnt_HMAC_CTX_free(ctx)
++end
++
++local function hmac_new(digest, key)
++    if key == nil then
++        return error('Key should be specified for HMAC operations')
++    end
++    local ctx = ffi.C.tnt_HMAC_CTX_new()
++    if ctx == nil then
++        return error('Can\'t create HMAC ctx: ' .. openssl_err_str())
++    end
++    ffi.gc(ctx, hmac_gc)
++    local self = setmetatable({
++        ctx = ctx,
++        digest = digest,
++        buf = buffer.ibuf(64),
++        initialized = false,
++        outl = ffi.new('int[1]')
++    }, hmac_mt)
++    self:init(key)
++    return self
++end
++
++local function hmac_init(self, key)
++    if self.ctx == nil then
++        return error('HMAC context isn\'t usable')
++    end
++    if ffi.C.HMAC_Init_ex(self.ctx, key, key:len(), self.digest, nil) ~= 1 then
++        return error('Can\'t init HMAC: ' .. openssl_err_str())
++    end
++    self.initialized = true
++end
++
++local function hmac_update(self, input)
++    if not self.initialized then
++        return error('HMAC not initialized')
++    end
++    if ffi.C.HMAC_Update(self.ctx, input, input:len()) ~= 1 then
++        return error('Can\'t update HMAC: ' .. openssl_err_str())
++    end
++end
++
++local function hmac_final(self)
++    if not self.initialized then
++        return error('HMAC not initialized')
++    end
++    self.initialized = false
++    if ffi.C.HMAC_Final(self.ctx, self.buf.wpos, self.outl) ~= 1 then
++        return error('Can\'t finalize HMAC: ' .. openssl_err_str())
++    end
++    return ffi.string(self.buf.wpos, self.outl[0])
++end
++
++local function hmac_free(self)
++    ffi.C.tnt_HMAC_CTX_free(self.ctx)
++    ffi.gc(self.ctx, nil)
++    self.ctx = nil
++    self.initialized = false
++end
++
++hmac_mt = {
++    __index = {
++          init = hmac_init,
++          update = hmac_update,
++          result = hmac_final,
++          free = hmac_free
++    }
++}
++
+ local ciphers = {}
+ for algo, algo_name in pairs({des = 'DES', aes128 = 'AES-128',
+     aes192 = 'AES-192', aes256 = 'AES-256'}) do
+@@ -224,7 +306,6 @@ local function cipher_free(self)
+     self.buf:reset()
+ end
+
+-
+ cipher_mt = {
+     __index = {
+           init = cipher_init,
+@@ -257,6 +338,29 @@ digest_api = setmetatable(digest_api,
+         return error('Digest method "' .. digest .. '" is not supported')
+     end })
+
++local hmac_api = {}
++for class, digest in pairs(hmacs) do
++    hmac_api[class] = setmetatable({
++        new = function (key) return hmac_new(digest, key) end
++    }, {
++        __call = function (self, key, str)
++            if type(str) ~= 'string' then
++                error("Usage: hmac."..class.."(key, string)")
++            end
++            local ctx = hmac_new(digest, key)
++            ctx:update(str)
++            local res = ctx:result()
++            ctx:free()
++            return res
++        end
++    })
++end
++
++hmac_api = setmetatable(hmac_api,
++    {__index = function(self, digest)
++        return error('HMAC method "' .. digest .. '" is not supported')
++    end })
++
+ local function cipher_mode_error(self, mode)
+   error('Cipher mode ' .. mode .. ' is not supported')
+ end
+@@ -295,5 +399,6 @@ cipher_api = setmetatable(cipher_api,
+
+ return {
+     digest = digest_api,
++    hmac   = hmac_api,
+     cipher = cipher_api,
+ }
+diff --git a/test/app/crypto_hmac.result b/test/app/crypto_hmac.result
+new file mode 100644
+index 0000000..cb737c6
+--- /dev/null
++++ b/test/app/crypto_hmac.result
+@@ -0,0 +1,151 @@
++test_run = require('test_run').new()
++---
++...
++test_run:cmd("push filter ".."'\\.lua.*:[0-9]+: ' to '.lua:<line>\"]: '")
++---
++- true
++...
++crypto = require('crypto')
++---
++...
++type(crypto)
++---
++- table
++...
++--
++-- Invalid arguments
++--
++crypto.hmac.md4()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.md4(key, string)'
++...
++crypto.hmac.md5()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.md5(key, string)'
++...
++crypto.hmac.sha1()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha1(key, string)'
++...
++crypto.hmac.sha224()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha224(key, string)'
++...
++crypto.hmac.sha256()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha256(key, string)'
++...
++crypto.hmac.sha384()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha384(key, string)'
++...
++crypto.hmac.sha512()
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha512(key, string)'
++...
++crypto.hmac.nodigest
++---
++- error: '[string "return crypto.hmac.nodigest "]:1: HMAC method "nodigest" is not
++    supported'
++...
++crypto.hmac.sha1('012345678', 'fred')
++---
++- !!binary H35BJij7GZ0Rag9c+HvsTFden3c=
++...
++key = '012345678'
++---
++...
++message = 'fred'
++---
++...
++crypto.hmac.sha1(key, nil)
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha1(key, string)'
++...
++crypto.hmac.sha1(nil, message)
++---
++- error: 'builtin/crypto.lua:<line>"]: Key should be specified for HMAC operations'
++...
++crypto.hmac.sha1(nil, nil)
++---
++- error: 'builtin/crypto.lua:<line>"]: Usage: hmac.sha1(key, string)'
++...
++crypto.hmac.md4(key, message)
++---
++- !!binary O62dNTQcfTuiyXfa/MKlig==
++...
++crypto.hmac.md5(key, message)
++---
++- !!binary s5FptfcQK37Bfh0R40qDPw==
++...
++crypto.hmac.sha1(key, message)
++---
++- !!binary H35BJij7GZ0Rag9c+HvsTFden3c=
++...
++crypto.hmac.sha224(key, message)
++---
++- !!binary JjzvWsIRDqIdEKKaDCILc3ybETuxj6LSkBJudw==
++...
++crypto.hmac.sha256(key, message)
++---
++- !!binary cIBSEwca3aliz6WGAYXiKK1+kU1ldzUk49s/b86AVxQ=
++...
++crypto.hmac.sha384(key, message)
++---
++- !!binary 1LC7zV1riyvdAjxUAhSYRXVLGUjsEZvLbvnbqJCqJPq3X117YfklFki++JWPUB8G
++...
++crypto.hmac.sha512(key, message)
++---
++- !!binary Q4PL+6f9bpLtXmGBaoq2aT4arwCoA0YmcOZ612jzZ0FgZ63CRMIa6JZ92t4cj+PQ8wojXj8jbo658ir/5BvPOg==
++...
++--
++-- Incremental update
++--
++hmac_sha1 = crypto.hmac.sha1.new(key)
++---
++...
++hmac_sha1:update('abc')
++---
++...
++hmac_sha1:update('cde')
++---
++...
++hmac_sha1:result() == crypto.hmac.sha1(key, 'abccde')
++---
++- true
++...
++--
++-- Empty string
++--
++crypto.hmac.md4(key, '')
++---
++- !!binary JntcBTt7gh45TdtdxuS6Fw==
++...
++crypto.hmac.md5(key, '')
++---
++- !!binary dIgsXw3Q8VV7D3I+s3kOPg==
++...
++crypto.hmac.sha1(key, '')
++---
++- !!binary eM9i/oncUFbfzncL5OQ2ZnUpWCY=
++...
++crypto.hmac.sha224(key, '')
++---
++- !!binary WC5mv2A+l1Y5/CEkxLMrRbmb/5temFsNXQ3xoQ==
++...
++crypto.hmac.sha256(key, '')
++---
++- !!binary lJeYNw6OtpHZCw0WUd+XvfwLcZM6za2O8/LJ48YQ+tQ=
++...
++crypto.hmac.sha384(key, '')
++---
++- !!binary z7E/+NqRq/Kkzk9+ijvCuyo8KgU57LoEJIx3ysgJfUDxJtCAWsHDqY/6GmJO1Slo
++...
++crypto.hmac.sha512(key, '')
++---
++- !!binary yqXDqloZTz1F312gTvXxod+2Rdd1O48FPI2h/2tux90XIemkz5xGMRs2sKajmAe7817TFWjnjHfvToDQ0Pvq3w==
++...
++test_run:cmd("clear filter")
++---
++- true
++...
+diff --git a/test/app/crypto_hmac.test.lua b/test/app/crypto_hmac.test.lua
+new file mode 100644
+index 0000000..cb486a3
+--- /dev/null
++++ b/test/app/crypto_hmac.test.lua
+@@ -0,0 +1,64 @@
++test_run = require('test_run').new()
++test_run:cmd("push filter ".."'\\.lua.*:[0-9]+: ' to '.lua:<line>\"]: '")
++
++crypto = require('crypto')
++type(crypto)
++
++
++--
++-- Invalid arguments
++--
++crypto.hmac.md4()
++crypto.hmac.md5()
++crypto.hmac.sha1()
++crypto.hmac.sha224()
++crypto.hmac.sha256()
++crypto.hmac.sha384()
++crypto.hmac.sha512()
++
++crypto.hmac.nodigest
++
++
++crypto.hmac.sha1('012345678', 'fred')
++
++key = '012345678'
++message = 'fred'
++
++crypto.hmac.sha1(key, nil)
++crypto.hmac.sha1(nil, message)
++crypto.hmac.sha1(nil, nil)
++
++
++crypto.hmac.md4(key, message)
++crypto.hmac.md5(key, message)
++crypto.hmac.sha1(key, message)
++crypto.hmac.sha224(key, message)
++crypto.hmac.sha256(key, message)
++crypto.hmac.sha384(key, message)
++crypto.hmac.sha512(key, message)
++
++
++--
++-- Incremental update
++--
++hmac_sha1 = crypto.hmac.sha1.new(key)
++hmac_sha1:update('abc')
++hmac_sha1:update('cde')
++hmac_sha1:result() == crypto.hmac.sha1(key, 'abccde')
++
++
++--
++-- Empty string
++--
++crypto.hmac.md4(key, '')
++crypto.hmac.md5(key, '')
++crypto.hmac.sha1(key, '')
++crypto.hmac.sha224(key, '')
++crypto.hmac.sha256(key, '')
++crypto.hmac.sha384(key, '')
++crypto.hmac.sha512(key, '')
++
++
++
++
++test_run:cmd("clear filter")
