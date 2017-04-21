@@ -3,6 +3,24 @@ MAINTAINER mail@racktear.com
 
 RUN groupadd -r tarantool && useradd -r -g tarantool tarantool
 
+ENV GOSU_VERSION 1.7
+
+RUN set -x \
+    && apt-get update && apt-get install -y --no-install-recommends \
+		ca-certificates \
+		wget \
+	&& wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture)" \
+	&& wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture).asc" \
+	&& export GNUPGHOME="$(mktemp -d)" \
+	&& gpg --keyserver ha.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+	&& gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
+	&& rm -r "$GNUPGHOME" /usr/local/bin/gosu.asc \
+	&& chmod +x /usr/local/bin/gosu \
+	&& gosu nobody true \
+    && apt-get purge -y ca-certificates wget \
+    && apt-get autoremove -y \
+	&& rm -rf /var/lib/apt/lists/*
+
 ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
     TARANTOOL_DOWNLOAD_URL=https://github.com/tarantool/tarantool.git \
     TARANTOOL_INSTALL_LUADIR=/usr/local/share/tarantool \
@@ -28,7 +46,28 @@ ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
 
 COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
 
-RUN BUILD_PACKAGES='devscripts equivs git build-essential ca-certificates wget make cmake cdbs gcc g++ unzip libreadline-dev libncurses5-dev binutils-dev libiberty-dev libbfd-dev uuid-dev liblua5.1-0-dev libcurl4-openssl-dev'; \
+RUN \
+    BUILD_PACKAGES=' \
+        devscripts \
+        equivs \
+        git \
+        build-essential \
+        ca-certificates \
+        wget \
+        make \
+        cmake \
+        cdbs \
+        gcc \
+        g++ \
+        unzip \
+        libreadline-dev \
+        libncurses5-dev \
+        binutils-dev \
+        libiberty-dev \
+        libbfd-dev \
+        uuid-dev \
+        liblua5.1-0-dev \
+        libcurl4-openssl-dev'; \
     set -ex \
     && apt-get update \
     && apt-get upgrade --yes \
@@ -113,7 +152,8 @@ RUN BUILD_PACKAGES='devscripts equivs git build-essential ca-certificates wget m
     && (cd /rocks/curl && luarocks make *rockspec) \
     && : "---------- remove build deps ----------" \
     && apt-get purge -y $BUILD_PACKAGES \
-    && apt-get autoremove -y
+    && apt-get autoremove -y \
+	&& rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/lib/tarantool \
     && chown tarantool:tarantool /var/lib/tarantool \

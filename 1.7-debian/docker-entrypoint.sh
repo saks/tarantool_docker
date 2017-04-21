@@ -10,7 +10,7 @@ fi
 # allow the container to be started with `--user`
 if [ "$1" = 'tarantool' -a "$(id -u)" = '0' ]; then
     chown -R tarantool /var/lib/tarantool
-    exec su-exec tarantool "$0" "$@"
+    exec gosu tarantool "$0" "$@"
 fi
 
 # entry point wraps the passed script to do basic setup
