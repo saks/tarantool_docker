@@ -28,11 +28,11 @@ ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
 
 COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
 
-RUN BUILD_PACKAGES='devscripts equivs git build-essential ca-certificates wget make cmake cdbs gcc g++ lua5.1 unzip libreadline-dev libncurses5-dev binutils-dev libiberty-dev libbfd-dev uuid-dev liblua5.1-0-dev libcurl4-openssl-dev'; \
+RUN BUILD_PACKAGES='devscripts equivs git build-essential ca-certificates wget make cmake cdbs gcc g++ unzip libreadline-dev libncurses5-dev binutils-dev libiberty-dev libbfd-dev uuid-dev liblua5.1-0-dev libcurl4-openssl-dev'; \
     set -ex \
     && apt-get update \
     && apt-get upgrade --yes \
-    && apt-get install --yes --no-install-recommends $BUILD_PACKAGES libyaml-dev libssl-dev libgomp1 \
+    && apt-get install --yes --no-install-recommends $BUILD_PACKAGES lua5.1 libyaml-dev libssl-dev libgomp1 \
     && : "---------- tarantool ----------" \
     && mkdir -p /usr/src/tarantool \
     && git clone "$TARANTOOL_DOWNLOAD_URL" /usr/src/tarantool \
