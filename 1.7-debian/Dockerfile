@@ -1,9 +1,7 @@
 FROM debian:stable
 MAINTAINER mail@racktear.com
 
-RUN addgroup -S tarantool \
-    && adduser -S -G tarantool tarantool \
-    && apk add --no-cache 'su-exec>=0.2'
+RUN groupadd -r tarantool && useradd -r -g tarantool tarantool
 
 ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
     TARANTOOL_DOWNLOAD_URL=https://github.com/tarantool/tarantool.git \
@@ -28,35 +26,13 @@ ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
 
 ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
 
-RUN set -x \
-    && apk add --no-cache --virtual .run-deps \
-        libstdc++ \
-        readline \
-        openssl \
-        yaml \
-        lz4 \
-        binutils \
-        ncurses \
-        libgomp \
-        lua \
-        curl \
-        tar \
-        zip \
-    && apk add --no-cache --virtual .build-deps \
-        perl \
-        gcc \
-        g++ \
-        cmake \
-        readline-dev \
-        openssl-dev \
-        yaml-dev \
-        lz4-dev \
-        binutils-dev \
-        ncurses-dev \
-        lua-dev \
-        musl-dev \
-        make \
-        git \
+COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
+
+RUN BUILD_PACKAGES='devscripts equivs git build-essential ca-certificates wget make cmake cdbs gcc g++ lua5.1 unzip libreadline-dev libncurses5-dev binutils-dev libiberty-dev libbfd-dev uuid-dev liblua5.1-0-dev libcurl4-openssl-dev'; \
+    set -ex \
+    && apt-get update \
+    && apt-get upgrade --yes \
+    && apt-get install --yes --no-install-recommends $BUILD_PACKAGES libyaml-dev libssl-dev libgomp1 \
     && : "---------- tarantool ----------" \
     && mkdir -p /usr/src/tarantool \
     && git clone "$TARANTOOL_DOWNLOAD_URL" /usr/src/tarantool \
@@ -101,28 +77,7 @@ RUN set -x \
         make install) \
     && rm -r /usr/src/luarocks \
     && rm -rf /usr/src/tarantool \
-    && : "---------- remove build deps ----------" \
-    && apk del .build-deps
-
-COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
-
-RUN set -x \
-    && apk add --no-cache --virtual .run-deps \
-        cyrus-sasl \
-        libcurl \
-    && apk add --no-cache --virtual .build-deps \
-        git \
-        cmake \
-        make \
-        coreutils \
-        gcc \
-        g++ \
-        lua-dev \
-        musl-dev \
-        cyrus-sasl-dev \
-        curl-dev \
     && mkdir -p /rocks \
-    && : "---------- luarocks ----------" \
     && luarocks install lua-term \
     && : "avro" \
     && git clone $LUAROCK_AVRO_SCHEMA_REPO /rocks/avro \
@@ -157,9 +112,8 @@ RUN set -x \
     && git -C /rocks/curl checkout $LUAROCK_TARANTOOL_CURL_TAG \
     && (cd /rocks/curl && luarocks make *rockspec) \
     && : "---------- remove build deps ----------" \
-    && apk del .build-deps \
-    && rm -rf /rocks
-
+    && apt-get purge -y $BUILD_PACKAGES \
+    && apt-get autoremove -y
 
 RUN mkdir -p /var/lib/tarantool \
     && chown tarantool:tarantool /var/lib/tarantool \
