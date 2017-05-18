@@ -21,7 +21,7 @@ RUN set -x \
     && apt-get autoremove -y \
 	&& rm -rf /var/lib/apt/lists/*
 
-ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
+ENV TARANTOOL_VERSION=1.7.4-0-g927bd9c24 \
     TARANTOOL_DOWNLOAD_URL=https://github.com/tarantool/tarantool.git \
     TARANTOOL_INSTALL_LUADIR=/usr/local/share/tarantool \
     LUAROCKS_URL=http://keplerproject.github.io/luarocks/releases/luarocks-2.3.0.tar.gz \
@@ -30,7 +30,7 @@ ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
     LUAROCK_EXPIRATIOND_REPO=https://github.com/tarantool/expirationd.git \
     LUAROCK_EXPIRATIOND_TAG=9ec22b6 \
     LUAROCK_QUEUE_REPO=https://github.com/tarantool/queue.git \
-    LUAROCK_QUEUE_TAG=9796515 \
+    LUAROCK_QUEUE_TAG=24d730c \
     LUAROCK_CONNPOOL_REPO=https://github.com/tarantool/connpool.git \
     LUAROCK_CONNPOOL_TAG=685af44 \
     LUAROCK_SHARD_REPO=https://github.com/tarantool/shard.git \
@@ -40,9 +40,7 @@ ENV TARANTOOL_VERSION=1.7.3-32-g0dd09b1 \
     LUAROCK_TARANTOOL_PROMETHEUS_REPO=https://github.com/tarantool/prometheus.git \
     LUAROCK_TARANTOOL_PROMETHEUS_TAG=0654304 \
     LUAROCK_TARANTOOL_CURL_REPO=https://github.com/tarantool/curl.git \
-    LUAROCK_TARANTOOL_CURL_TAG=900b3fd
-
-ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
+    LUAROCK_TARANTOOL_CURL_TAG=2.2.7
 
 COPY luarocks-config.lua /usr/local/etc/luarocks/config-5.1.lua
 
@@ -67,19 +65,24 @@ RUN \
         libbfd-dev \
         uuid-dev \
         liblua5.1-0-dev \
+        libev-dev \
         libcurl4-openssl-dev'; \
     set -ex \
     && apt-get update \
     && apt-get upgrade --yes \
-    && apt-get install --yes --no-install-recommends $BUILD_PACKAGES lua5.1 libyaml-dev libssl-dev libgomp1 \
+    && apt-get install --yes --no-install-recommends \
+        $BUILD_PACKAGES \
+        lua5.1 \
+        libyaml-dev \
+        libssl-dev \
+        libgomp1 \
+        libev4 \
     && : "---------- tarantool ----------" \
     && mkdir -p /usr/src/tarantool \
     && git clone "$TARANTOOL_DOWNLOAD_URL" /usr/src/tarantool \
     && git -C /usr/src/tarantool checkout "$TARANTOOL_VERSION" \
     && git -C /usr/src/tarantool submodule update --init --recursive \
     && (cd /usr/src/tarantool; \
-       mv /tmp/add_crypto_hmac.patch .; \
-       git apply add_crypto_hmac.patch; \
        cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo\
              -DENABLE_BUNDLED_LIBYAML:BOOL=OFF\
              -DENABLE_BACKTRACE:BOOL=ON\
@@ -170,6 +173,7 @@ WORKDIR /opt/tarantool
 COPY tarantool-entrypoint.lua /usr/local/bin/
 COPY tarantool_set_config.lua /usr/local/bin/
 COPY docker-entrypoint.sh /usr/local/bin/
+COPY console /usr/local/bin/
 COPY tarantool_is_up /usr/local/bin/
 COPY tarantool.default /usr/local/etc/default/tarantool
 

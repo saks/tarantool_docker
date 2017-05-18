@@ -26,8 +26,6 @@ ENV TARANTOOL_VERSION=1.7.4-0-g927bd9c24 \
     LUAROCK_TARANTOOL_CURL_REPO=https://github.com/tarantool/curl.git \
     LUAROCK_TARANTOOL_CURL_TAG=2.2.7
 
-ADD add_crypto_hmac.patch /tmp/add_crypto_hmac.patch
-
 RUN set -x \
     && apk add --no-cache --virtual .run-deps \
         libstdc++ \
@@ -63,8 +61,6 @@ RUN set -x \
     && git -C /usr/src/tarantool checkout "$TARANTOOL_VERSION" \
     && git -C /usr/src/tarantool submodule update --init --recursive \
     && (cd /usr/src/tarantool; \
-       mv /tmp/add_crypto_hmac.patch .; \
-       git apply add_crypto_hmac.patch; \
        cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo\
              -DENABLE_BUNDLED_LIBYAML:BOOL=OFF\
              -DENABLE_BACKTRACE:BOOL=ON\
@@ -182,8 +178,6 @@ COPY tarantool.default /usr/local/etc/default/tarantool
 
 RUN ln -s usr/local/bin/docker-entrypoint.sh /entrypoint.sh # backwards compat
 ENTRYPOINT ["docker-entrypoint.sh"]
-
-HEALTHCHECK CMD tarantool_is_up
 
 EXPOSE 3301
 CMD [ "tarantool" ]
